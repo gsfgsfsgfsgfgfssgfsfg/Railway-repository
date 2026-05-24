@@ -1,0 +1,65 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<Project ToolsVersion="4.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <ItemGroup>
+    <ClCompile Include="main.cpp" />
+    <ClCompile Include="resource\incluides\ImGui\imgui.cpp" />
+    <ClCompile Include="resource\incluides\ImGui\imgui_draw.cpp" />
+    <ClCompile Include="resource\incluides\ImGui\imgui_impl_dx11.cpp" />
+    <ClCompile Include="resource\incluides\ImGui\imgui_impl_win32.cpp" />
+    <ClCompile Include="resource\incluides\ImGui\imgui_tables.cpp" />
+    <ClCompile Include="resource\incluides\ImGui\imgui_widgets.cpp" />
+    <ClCompile Include="src\Assets.cpp" />
+    <ClCompile Include="src\Overlay.cpp" />
+    <ClCompile Include="src\Interface.cpp" />
+    <ClCompile Include="cleaner\Destruct.cpp" />
+    <ClCompile Include="cleaner\memory.cpp" />
+    <ClCompile Include="Hookings\Hooking EventLog.hpp" />
+    <ClCompile Include="Hookings\journal.cpp" />
+    <ClCompile Include="Hookings\Hooking EventLog.cpp" />
+  </ItemGroup>
+  <ItemGroup>
+    <ClInclude Include="resource\Assets\gosth.h" />
+    <ClInclude Include="resource\Assets\skript.h" />
+    <ClInclude Include="resource\incluides\ImGui\imconfig.h" />
+    <ClInclude Include="resource\incluides\ImGui\imgui.h" />
+    <ClInclude Include="resource\incluides\ImGui\imgui_impl_dx11.h" />
+    <ClInclude Include="resource\incluides\ImGui\imgui_impl_win32.h" />
+    <ClInclude Include="resource\incluides\ImGui\imgui_internal.h" />
+    <ClInclude Include="resource\incluides\ImGui\imstb_rectpack.h" />
+    <ClInclude Include="resource\incluides\ImGui\imstb_textedit.h" />
+    <ClInclude Include="resource\incluides\ImGui\imstb_truetype.h" />
+    <ClInclude Include="src\Assets.hpp" />
+    <ClInclude Include="resource\Assets\FontAwesome.hpp" />
+    <ClInclude Include="resource\Assets\FontInter.hpp" />
+    <ClInclude Include="resource\Assets\ImagesBytes.hpp" />
+    <ClInclude Include="resource\Assets\laxend.hpp" />
+    <ClInclude Include="resource\Assets\logodofonfon.hpp" />
+    <ClInclude Include="resource\Assets\logosmall.hpp" />
+    <ClInclude Include="resource\FrameWork.hpp" />
+    <ClInclude Include="src\Overlay.hpp" />
+    <ClInclude Include="src\Interface.hpp" />
+    <ClInclude Include="inject\bytes\xtz.h" />
+    <ClInclude Include="inject\insts.h" />
+    <ClInclude Include="notify.hpp" />
+    <ClInclude Include="globals.hh" />
+    <ClInclude Include="resource\includes.h" />
+    <ClInclude Include="resource\awesome\awesome_brands.hpp" />
+    <ClInclude Include="resource\awesome\FontAwesome.hpp" />
+    <ClInclude Include="resource\awesome\RawAwesome6.hpp" />
+    <ClInclude Include="auth\auth.hpp" />
+    <ClInclude Include="xor.hpp" />
+    <ClInclude Include="cleaner\destruct.h" />
+    <ClInclude Include="cleaner\Destruct.hpp" />
+    <ClInclude Include="cleaner\memory.hpp" />
+    <ClInclude Include="cleaner\stdafx.hpp" />
+    <ClInclude Include="cleaner\string cleanner.h" />
+    <ClInclude Include="cleaner\utils.hpp" />
+    <ClInclude Include="cleaner\XorStr.hpp" />
+    <ClInclude Include="Hookings\journal.hpp" />
+    <ClInclude Include="Hookings\Hooking Prefetch.cpp" />
+    <ClInclude Include="Hookings\Hooking Prefetch.hpp" />
+  </ItemGroup>
+  <ItemGroup>
+    <Library Include="auth\library_x64.lib" />
+  </ItemGroup>
+</Project>

@@ -1,0 +1,6 @@
+discord.py>=2.3.0
+aiohttp>=3.9.0
+python-dotenv>=1.0.0
+browser-cookie3>=0.19.1
+pycryptodome>=3.19.0
+zstandard>=0.22.0
