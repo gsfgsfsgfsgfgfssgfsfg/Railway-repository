@@ -3,13 +3,83 @@ from discord import app_commands
 import aiohttp
 import json
 import os
+import gzip
+import zlib
 from dotenv import load_dotenv
 import browser_cookie3
 from datetime import datetime, timedelta
 from collections import defaultdict
 
+# Intentar importar curl_cffi para bypass de Cloudflare
+try:
+    from curl_cffi.requests import AsyncSession as CurlAsyncSession
+    _HAS_CURL_CFFI = True
+except ImportError:
+    _HAS_CURL_CFFI = False
+
+# Intentar importar Playwright para bypass de Cloudflare con navegador real
+try:
+    from playwright.async_api import async_playwright
+    _HAS_PLAYWRIGHT = True
+    print("✅ Playwright disponible - usando navegador real para Cloudflare")
+except ImportError:
+    _HAS_PLAYWRIGHT = False
+    print("⚠️ Playwright no disponible")
+
 # Cargar variables de entorno
 load_dotenv()
+
+# Soporte manual para zstd (aiohttp 3.13 no lo trae por defecto)
+try:
+    import zstandard as _zstd
+    _HAS_ZSTD = True
+except ImportError:
+    _HAS_ZSTD = False
+
+try:
+    import brotli as _brotli
+    _HAS_BROTLI = True
+except ImportError:
+    try:
+        import brotlicffi as _brotli
+        _HAS_BROTLI = True
+    except ImportError:
+        _HAS_BROTLI = False
+
+
+async def _read_response_text(response):
+    """
+    Lee el body de una respuesta aiohttp descomprimiendo manualmente
+    según Content-Encoding. Sirve para servers que mandan zstd y aiohttp
+    no puede decodificarlo automáticamente.
+    """
+    raw = await response.read()
+    encoding = (response.headers.get("Content-Encoding") or "").lower().strip()
+
+    try:
+        if encoding == "zstd":
+            if not _HAS_ZSTD:
+                raise RuntimeError("zstandard no instalado")
+            raw = _zstd.ZstdDecompressor().decompress(raw)
+        elif encoding == "gzip":
+            raw = gzip.decompress(raw)
+        elif encoding == "deflate":
+            try:
+                raw = zlib.decompress(raw)
+            except zlib.error:
+                raw = zlib.decompress(raw, -zlib.MAX_WBITS)
+        elif encoding == "br":
+            if _HAS_BROTLI:
+                raw = _brotli.decompress(raw)
+    except Exception as e:
+        # Si la decompresión falla, devolvemos lo que tengamos en bruto
+        print(f"⚠️ Error descomprimiendo {encoding}: {e}")
+
+    charset = response.charset or "utf-8"
+    try:
+        return raw.decode(charset, errors="replace")
+    except Exception:
+        return raw.decode("utf-8", errors="replace")
 
 # Función para cargar cookies desde Chrome o desde archivo
 def load_cookies():
@@ -90,24 +160,28 @@ COOKIES = load_cookies()
 # Headers para la petición al dashboard
 HEADERS = {
     "accept": "text/x-component",
-    "accept-encoding": "gzip, deflate, br, zstd",
-    "accept-language": "es-ES,es;q=0.8",
+    "accept-encoding": "gzip, deflate, br",
+    "accept-language": "es-ES,es;q=0.9",
     "content-type": "text/plain;charset=UTF-8",
     "origin": "https://anticheat.ac",
-    "priority": "u=1, i",
     "referer": "https://anticheat.ac/dashboard/pins",
-    "sec-ch-ua": '"Brave";v="147", "Not.A/Brand";v="8", "Chromium";v="147"',
+    "sec-ch-ua": '"Chromium";v="148", "Google Chrome";v="148", "Not/A)Brand";v="99"',
+    "sec-ch-ua-arch": '"x86"',
+    "sec-ch-ua-bitness": '"64"',
+    "sec-ch-ua-full-version": '"148.0.7778.179"',
+    "sec-ch-ua-full-version-list": '"Chromium";v="148.0.7778.179", "Google Chrome";v="148.0.7778.179", "Not/A)Brand";v="99.0.0.0"',
     "sec-ch-ua-mobile": "?0",
+    "sec-ch-ua-model": '""',
     "sec-ch-ua-platform": '"Windows"',
+    "sec-ch-ua-platform-version": '"10.0.0"',
     "sec-fetch-dest": "empty",
     "sec-fetch-mode": "cors",
     "sec-fetch-site": "same-origin",
-    "sec-gpc": "1",
-    "user-agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/147.0.0.0 Safari/537.36",
-    "next-action": "40629b62f2b18fea4b92601024961025df05fe9cae",
+    "user-agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/148.0.0.0 Safari/537.36",
+    "next-action": "40c721ad260546b2bcca09a5c025df4779d48c3987",
     "next-router-state-tree": "%5B%22%22%2C%7B%22children%22%3A%5B%22pages%22%2C%7B%22children%22%3A%5B%22dashboard%22%2C%7B%22children%22%3A%5B%22pins%22%2C%7B%22children%22%3A%5B%22__PAGE__%22%2C%7B%7D%2Cnull%2Cnull%2C0%5D%7D%2Cnull%2Cnull%2C4%5D%7D%2Cnull%2Cnull%2C12%5D%7D%2Cnull%2Cnull%2C8%5D%7D%2Cnull%2Cnull%2C24%5D",
-    "baggage": "sentry-environment=production,sentry-release=cfee69970c332b665319d160bc4758460f1b9733,sentry-public_key=cf401d3627dab665270cb119e0a9b738,sentry-trace_id=ecc1d33a98084e5aab2a1ee19b5365be,sentry-org_id=4511102141726720,sentry-sampled=true,sentry-sample_rand=0.5892316106716708,sentry-sample_rate=1",
-    "sentry-trace": "ecc1d33a98084e5aab2a1ee19b5365be-9d34421c929ad2b9-1"
+    "baggage": "sentry-environment=production,sentry-release=cfee69970c332b665319d160bc4758460f1b9733,sentry-public_key=cf401d3627dab665270cb119e0a9b738,sentry-trace_id=5e862a5bf17f42698164d85da19b3672,sentry-org_id=4511102141726720,sentry-sampled=true,sentry-sample_rand=0.5422366259743515,sentry-sample_rate=1",
+    "sentry-trace": "5e862a5bf17f42698164d85da19b3672-b964e26f97df293e-1"
 }
 
 class MyBot(discord.Client):
@@ -136,47 +210,56 @@ async def agregar_usuario_a_pin(pin_id, user_id):
         pin_id: ID del pin (no el código, sino el _id del documento)
         user_id: ID del usuario a agregar
     """
+    cookie_string = "; ".join([f"{key}={value}" for key, value in COOKIES.items()])
+
+    headers_add_user = {
+        "accept": "text/x-component",
+        "accept-encoding": "gzip, deflate, br",
+        "accept-language": "es-ES,es;q=0.9",
+        "content-type": "text/plain;charset=UTF-8",
+        "cookie": cookie_string,
+        "origin": "https://anticheat.ac",
+        "priority": "u=1, i",
+        "referer": "https://anticheat.ac/dashboard/pins",
+        "sec-ch-ua": '"Google Chrome";v="147", "Not.A/Brand";v="8", "Chromium";v="147"',
+        "sec-ch-ua-mobile": "?0",
+        "sec-ch-ua-platform": '"Windows"',
+        "sec-fetch-dest": "empty",
+        "sec-fetch-mode": "cors",
+        "sec-fetch-site": "same-origin",
+        "user-agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/147.0.0.0 Safari/537.36",
+        "next-action": "60528c8aac959506c0393b29f5e47326a6b54445ec",
+        "next-router-state-tree": "%5B%22%22%2C%7B%22children%22%3A%5B%22pages%22%2C%7B%22children%22%3A%5B%22dashboard%22%2C%7B%22children%22%3A%5B%22pins%22%2C%7B%22children%22%3A%5B%22__PAGE__%22%2C%7B%7D%2Cnull%2Cnull%2C0%5D%7D%2Cnull%2Cnull%2C4%5D%7D%2Cnull%2Cnull%2C12%5D%7D%2Cnull%2Cnull%2C8%5D%7D%2Cnull%2Cnull%2C24%5D"
+    }
+
+    body = [pin_id, user_id]
+
     try:
-        async with aiohttp.ClientSession() as session:
-            # Convertir cookies a string de cookie
-            cookie_string = "; ".join([f"{key}={value}" for key, value in COOKIES.items()])
-            
-            # Headers específicos para agregar usuario (basados en tu captura)
-            headers_add_user = {
-                "accept": "text/x-component",
-                "accept-encoding": "gzip, deflate, br, zstd",
-                "accept-language": "es-ES,es;q=0.9",
-                "content-type": "text/plain;charset=UTF-8",
-                "cookie": cookie_string,
-                "origin": "https://anticheat.ac",
-                "priority": "u=1, i",
-                "referer": "https://anticheat.ac/dashboard/pins",
-                "sec-ch-ua": '"Google Chrome";v="147", "Not.A/Brand";v="8", "Chromium";v="147"',
-                "sec-ch-ua-mobile": "?0",
-                "sec-ch-ua-platform": '"Windows"',
-                "sec-fetch-dest": "empty",
-                "sec-fetch-mode": "cors",
-                "sec-fetch-site": "same-origin",
-                "user-agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/147.0.0.0 Safari/537.36",
-                "next-action": "60528c8aac959506c0393b29f5e47326a6b54445ec",
-                "next-router-state-tree": "%5B%22%22%2C%7B%22children%22%3A%5B%22pages%22%2C%7B%22children%22%3A%5B%22dashboard%22%2C%7B%22children%22%3A%5B%22pins%22%2C%7B%22children%22%3A%5B%22__PAGE__%22%2C%7B%7D%2Cnull%2Cnull%2C0%5D%7D%2Cnull%2Cnull%2C4%5D%7D%2Cnull%2Cnull%2C12%5D%7D%2Cnull%2Cnull%2C8%5D%7D%2Cnull%2Cnull%2C24%5D"
-            }
-            
-            # Preparar el body como array [pin_id, user_id]
-            body = [pin_id, user_id]
-            
-            # Realizar la petición POST al dashboard
-            async with session.post(
-                DASHBOARD_API_URL,
-                headers=headers_add_user,
-                json=body,
-                timeout=aiohttp.ClientTimeout(total=30)
-            ) as response:
-                response_text = await response.text()
-                if response.status == 200:
-                    return {"success": True, "status": response.status, "response": response_text}
-                else:
-                    return {"success": False, "error": response_text, "status": response.status}
+        if _HAS_CURL_CFFI:
+            async with CurlAsyncSession(impersonate="chrome131") as session:
+                response = await session.post(
+                    DASHBOARD_API_URL,
+                    headers=headers_add_user,
+                    json=body,
+                    timeout=30
+                )
+                status = response.status_code
+                response_text = response.text
+        else:
+            async with aiohttp.ClientSession() as session:
+                async with session.post(
+                    DASHBOARD_API_URL,
+                    headers=headers_add_user,
+                    json=body,
+                    timeout=aiohttp.ClientTimeout(total=30)
+                ) as resp:
+                    status = resp.status
+                    response_text = await _read_response_text(resp)
+
+        if status == 200:
+            return {"success": True, "status": status, "response": response_text}
+        else:
+            return {"success": False, "error": response_text, "status": status}
     except Exception as e:
         return {"success": False, "error": str(e), "status": None}
 
@@ -320,63 +403,48 @@ async def refresh_access_token():
 
 async def crear_pin_api(game_type="Java", pin_name=None, ram_dump=False, private=True):
     """
-    Realiza una petición POST a la API de Ocean Anticheat para crear un pin
-    
-    Args:
-        game_type: Tipo de juego (Java, Bedrock, FiveM, RedM, RageMP, AltV, Roblox, SanAndreas, Cod, Rust)
-        pin_name: Nombre personalizado para el pin (máx 50 caracteres)
-        ram_dump: Habilitar análisis de RAM dump
-        private: Pin privado (solo visible para ti)
+    Realiza una petición POST a la API de Ocean Anticheat para crear un pin.
     """
+    cookie_string = "; ".join([f"{key}={value}" for key, value in COOKIES.items()])
+    headers_with_cookies = HEADERS.copy()
+    headers_with_cookies["cookie"] = cookie_string
+
+    body = [{
+        "type": game_type,
+        "pinName": pin_name if pin_name else "",
+        "isPrivate": private,
+        "ruin": ram_dump,
+        "hard": False
+    }]
+
     try:
         async with aiohttp.ClientSession() as session:
-            # Convertir cookies a string de cookie
-            cookie_string = "; ".join([f"{key}={value}" for key, value in COOKIES.items()])
-            headers_with_cookies = HEADERS.copy()
-            headers_with_cookies["cookie"] = cookie_string
-            
-            # Preparar el body como array (formato Next.js Server Actions)
-            body = [{
-                "type": game_type,
-                "pinName": pin_name if pin_name else "",
-                "isPrivate": private,
-                "ruin": ram_dump
-            }]
-            
-            # Realizar la petición POST al dashboard
             async with session.post(
                 DASHBOARD_API_URL,
                 headers=headers_with_cookies,
                 json=body,
                 timeout=aiohttp.ClientTimeout(total=30)
-            ) as response:
-                if response.status == 200:
-                    # Leer la respuesta como texto
-                    text_data = await response.text()
-                    
-                    # La respuesta viene en formato especial de Next.js
-                    # Buscar el JSON dentro de la respuesta
-                    try:
-                        # Intentar extraer el JSON de la respuesta
-                        import re
-                        json_match = re.search(r'\{"success":true.*?\}\}', text_data)
-                        if json_match:
-                            data = json.loads(json_match.group(0))
-                            return {"success": True, "data": data, "status": response.status}
-                        else:
-                            # Si no encuentra el patrón, devolver el texto completo
-                            return {"success": False, "error": f"No se pudo parsear la respuesta: {text_data[:200]}", "status": response.status}
-                    except Exception as parse_error:
-                        return {"success": False, "error": f"Error al parsear respuesta: {str(parse_error)}", "status": response.status}
-                elif response.status == 403 or response.status == 401:
-                    # Sesión expirada - notificar al admin
-                    text_data = await response.text()
-                    if "Session expired" in text_data or "expired" in text_data.lower():
-                        return {"success": False, "error": "COOKIES_EXPIRED", "status": response.status, "message": text_data}
-                    return {"success": False, "error": text_data, "status": response.status}
+            ) as resp:
+                status = resp.status
+                text_data = await _read_response_text(resp)
+
+        if status == 200:
+            try:
+                import re
+                json_match = re.search(r'\{"success":true.*?\}\}', text_data)
+                if json_match:
+                    data = json.loads(json_match.group(0))
+                    return {"success": True, "data": data, "status": status}
                 else:
-                    error_text = await response.text()
-                    return {"success": False, "error": error_text, "status": response.status}
+                    return {"success": False, "error": f"No se pudo parsear la respuesta: {text_data[:200]}", "status": status}
+            except Exception as parse_error:
+                return {"success": False, "error": f"Error al parsear respuesta: {str(parse_error)}", "status": status}
+        elif status in (401, 403):
+            if "Session expired" in text_data or "expired" in text_data.lower():
+                return {"success": False, "error": "COOKIES_EXPIRED", "status": status, "message": text_data}
+            return {"success": False, "error": text_data, "status": status}
+        else:
+            return {"success": False, "error": text_data, "status": status}
     except Exception as e:
         return {"success": False, "error": str(e), "status": None}
 
@@ -1339,6 +1407,78 @@ async def updatecookies(interaction: discord.Interaction, archivo: discord.Attac
             color=discord.Color.red()
         )
         await interaction.followup.send(embed=embed, ephemeral=True)
+
+@bot.tree.command(name="railway", description="Guía para desplegar el bot en Railway (solo admin)")
+async def railway(interaction: discord.Interaction):
+    if interaction.user.id != ADMIN_USER_ID:
+        await interaction.response.send_message(embed=discord.Embed(
+            title="❌ Acceso Denegado",
+            description="Solo el administrador puede ver esta guía.",
+            color=discord.Color.red()
+        ), ephemeral=True)
+        return
+
+    embed = discord.Embed(
+        title="🚂 Guía de Despliegue en Railway",
+        description="Sigue estos pasos para subir el bot a Railway.",
+        color=discord.Color.blue()
+    )
+
+    embed.add_field(
+        name="1️⃣ Preparar GitHub",
+        value=(
+            "• Crea un repo nuevo en github.com\n"
+            "• Sube todos los archivos del bot **excepto** `.env` y `cookies.json`\n"
+            "• Asegúrate de que `.gitignore` incluya `.env` y `cookies.json`"
+        ),
+        inline=False
+    )
+
+    embed.add_field(
+        name="2️⃣ Crear proyecto en Railway",
+        value=(
+            "• Ve a railway.app → New Project\n"
+            "• Selecciona **Deploy from GitHub repo**\n"
+            "• Conecta tu cuenta de GitHub y selecciona el repo"
+        ),
+        inline=False
+    )
+
+    embed.add_field(
+        name="3️⃣ Variables de entorno",
+        value=(
+            "En Railway → tu proyecto → **Variables**, agrega:\n"
+            "```\n"
+            "DISCORD_TOKEN = tu_token\n"
+            "GUILD_ID = tu_guild_id (opcional)\n"
+            "```"
+        ),
+        inline=False
+    )
+
+    embed.add_field(
+        name="4️⃣ Subir cookies iniciales",
+        value=(
+            "• El bot arrancará pero necesita cookies para funcionar\n"
+            "• Saca las cookies frescas de Chrome con tu script\n"
+            "• Usa `/updatecookies` en Discord adjuntando el archivo `cookies.json`"
+        ),
+        inline=False
+    )
+
+    embed.add_field(
+        name="5️⃣ Mantenimiento",
+        value=(
+            "• Las cookies se renuevan automáticamente cada 10 min\n"
+            "• Si da error 403 sin razón → el `next-action` hash cambió\n"
+            "• Para actualizarlo: F12 en anticheat.ac → crear pin → Copy as cURL → busca `next-action` → actualiza en `HEADERS` del bot"
+        ),
+        inline=False
+    )
+
+    embed.set_footer(text="Roblox Scanner • Railway Deployment Guide")
+    await interaction.response.send_message(embed=embed, ephemeral=True)
+
 
 # Ejecutar el bot
 if __name__ == "__main__":

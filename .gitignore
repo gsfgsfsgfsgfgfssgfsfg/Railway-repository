@@ -79,4 +79,5 @@ Thumbs.db
 
 # Sensitive files (auto-detected)
 .env
+cookies.json
 
