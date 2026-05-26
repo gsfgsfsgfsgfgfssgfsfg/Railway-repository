@@ -157,6 +157,10 @@ AUTO_ADD_USERNAME = "traaaaackeeeedbasicicicccc"  # Username del usuario
 # Cookies de autenticación (se cargan automáticamente desde Chrome)
 COOKIES = load_cookies()
 
+# Hashes de Next.js Server Actions (se actualizan con /updatehash)
+HASH_CREAR_PIN = "603edadc513e1235e715894acec57053c52d88cad9"
+HASH_MANAGE_ACCESS = "60528c8aac959506c0393b29f5e47326a6b54445ec"
+
 # Headers para la petición al dashboard
 HEADERS = {
     "accept": "text/x-component",
@@ -178,7 +182,7 @@ HEADERS = {
     "sec-fetch-mode": "cors",
     "sec-fetch-site": "same-origin",
     "user-agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/148.0.0.0 Safari/537.36",
-    "next-action": "40c721ad260546b2bcca09a5c025df4779d48c3987",
+    "next-action": HASH_CREAR_PIN,
     "next-router-state-tree": "%5B%22%22%2C%7B%22children%22%3A%5B%22pages%22%2C%7B%22children%22%3A%5B%22dashboard%22%2C%7B%22children%22%3A%5B%22pins%22%2C%7B%22children%22%3A%5B%22__PAGE__%22%2C%7B%7D%2Cnull%2Cnull%2C0%5D%7D%2Cnull%2Cnull%2C4%5D%7D%2Cnull%2Cnull%2C12%5D%7D%2Cnull%2Cnull%2C8%5D%7D%2Cnull%2Cnull%2C24%5D",
     "baggage": "sentry-environment=production,sentry-release=cfee69970c332b665319d160bc4758460f1b9733,sentry-public_key=cf401d3627dab665270cb119e0a9b738,sentry-trace_id=5e862a5bf17f42698164d85da19b3672,sentry-org_id=4511102141726720,sentry-sampled=true,sentry-sample_rand=0.5422366259743515,sentry-sample_rate=1",
     "sentry-trace": "5e862a5bf17f42698164d85da19b3672-b964e26f97df293e-1"
@@ -228,7 +232,7 @@ async def agregar_usuario_a_pin(pin_id, user_id):
         "sec-fetch-mode": "cors",
         "sec-fetch-site": "same-origin",
         "user-agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/147.0.0.0 Safari/537.36",
-        "next-action": "60528c8aac959506c0393b29f5e47326a6b54445ec",
+        "next-action": HASH_MANAGE_ACCESS,
         "next-router-state-tree": "%5B%22%22%2C%7B%22children%22%3A%5B%22pages%22%2C%7B%22children%22%3A%5B%22dashboard%22%2C%7B%22children%22%3A%5B%22pins%22%2C%7B%22children%22%3A%5B%22__PAGE__%22%2C%7B%7D%2Cnull%2Cnull%2C0%5D%7D%2Cnull%2Cnull%2C4%5D%7D%2Cnull%2Cnull%2C12%5D%7D%2Cnull%2Cnull%2C8%5D%7D%2Cnull%2Cnull%2C24%5D"
     }
 
@@ -1407,6 +1411,44 @@ async def updatecookies(interaction: discord.Interaction, archivo: discord.Attac
             color=discord.Color.red()
         )
         await interaction.followup.send(embed=embed, ephemeral=True)
+
+@bot.tree.command(name="updatehash", description="Actualiza los hashes de Next.js (solo admin)")
+@app_commands.describe(
+    tipo="Qué hash actualizar",
+    hash="El nuevo hash obtenido del cURL"
+)
+@app_commands.choices(tipo=[
+    app_commands.Choice(name="Crear Pin", value="crear_pin"),
+    app_commands.Choice(name="Manage Access", value="manage_access"),
+])
+async def updatehash(interaction: discord.Interaction, tipo: app_commands.Choice[str], hash: str):
+    if interaction.user.id != ADMIN_USER_ID:
+        await interaction.response.send_message(embed=discord.Embed(
+            title="❌ Acceso Denegado",
+            description="Solo el administrador puede usar este comando.",
+            color=discord.Color.red()
+        ), ephemeral=True)
+        return
+
+    global HASH_CREAR_PIN, HASH_MANAGE_ACCESS, HEADERS
+
+    if tipo.value == "crear_pin":
+        HASH_CREAR_PIN = hash
+        HEADERS["next-action"] = hash
+        nombre = "Crear Pin"
+    else:
+        HASH_MANAGE_ACCESS = hash
+        nombre = "Manage Access"
+
+    embed = discord.Embed(
+        title="✅ Hash Actualizado",
+        description=f"El hash de **{nombre}** ha sido actualizado.",
+        color=discord.Color.green()
+    )
+    embed.add_field(name="Nuevo Hash", value=f"`{hash}`", inline=False)
+    embed.set_footer(text="Roblox Scanner")
+    await interaction.response.send_message(embed=embed, ephemeral=True)
+
 
 @bot.tree.command(name="railway", description="Guía para desplegar el bot en Railway (solo admin)")
 async def railway(interaction: discord.Interaction):
