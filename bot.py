@@ -162,7 +162,7 @@ extra_auto_add_users = []
 COOKIES = load_cookies()
 
 # Hashes de Next.js Server Actions (se actualizan con /updatehash)
-HASH_CREAR_PIN = "603edadc513e1235e715894acec57053c52d88cad9"
+HASH_CREAR_PIN = "40c6cf5f2262c3b68f309e0d6405421cb5adae1e99"
 HASH_MANAGE_ACCESS = "60528c8aac959506c0393b29f5e47326a6b54445ec"
 
 # Headers para la petición al dashboard
@@ -243,26 +243,15 @@ async def agregar_usuario_a_pin(pin_id, user_id):
     body = [pin_id, user_id]
 
     try:
-        if _HAS_CURL_CFFI:
-            async with CurlAsyncSession(impersonate="chrome131") as session:
-                response = await session.post(
-                    DASHBOARD_API_URL,
-                    headers=headers_add_user,
-                    json=body,
-                    timeout=30
-                )
-                status = response.status_code
-                response_text = response.text
-        else:
-            async with aiohttp.ClientSession() as session:
-                async with session.post(
-                    DASHBOARD_API_URL,
-                    headers=headers_add_user,
-                    json=body,
-                    timeout=aiohttp.ClientTimeout(total=30)
-                ) as resp:
-                    status = resp.status
-                    response_text = await _read_response_text(resp)
+        async with aiohttp.ClientSession() as session:
+            async with session.post(
+                DASHBOARD_API_URL,
+                headers=headers_add_user,
+                json=body,
+                timeout=aiohttp.ClientTimeout(total=30)
+            ) as resp:
+                status = resp.status
+                response_text = await _read_response_text(resp)
 
         if status == 200:
             return {"success": True, "status": status, "response": response_text}
@@ -439,6 +428,21 @@ async def crear_pin_api(game_type="Java", pin_name=None, ram_dump=False, private
         if status == 200:
             try:
                 import re
+                # Intentar parsear como JSON directo primero
+                try:
+                    data = json.loads(text_data)
+                    # Si es un array, tomar el primer elemento que tenga "success"
+                    if isinstance(data, list):
+                        for item in data:
+                            if isinstance(item, dict) and "success" in item:
+                                return {"success": True, "data": item, "status": status}
+                    # Si es un objeto directo con success
+                    elif isinstance(data, dict) and "success" in data:
+                        return {"success": True, "data": data, "status": status}
+                except json.JSONDecodeError:
+                    pass
+                
+                # Fallback: buscar JSON embebido con regex
                 json_match = re.search(r'\{"success":true.*?\}\}', text_data)
                 if json_match:
                     data = json.loads(json_match.group(0))
@@ -799,6 +803,18 @@ async def crearpin(
     """
     Comando slash para crear un pin (internamente usa Java, muestra Roblox)
     """
+    # Defer inmediatamente para evitar timeout (3s)
+    try:
+        await interaction.response.defer(ephemeral=False)
+    except discord.errors.NotFound:
+        embed = discord.Embed(
+            title="❌ Error de Interacción",
+            description="La interacción expiró. Intenta de nuevo.",
+            color=discord.Color.red()
+        )
+        await interaction.followup.send(embed=embed, ephemeral=False)
+        return
+    
     # Verificar si el usuario tiene el rol permitido
     if not tiene_rol_permitido(interaction):
         embed = discord.Embed(
@@ -807,7 +823,7 @@ async def crearpin(
             color=discord.Color.red()
         )
         embed.set_footer(text="Necesitas el rol autorizado para usar este bot")
-        await interaction.response.send_message(embed=embed, ephemeral=False)
+        await interaction.followup.send(embed=embed, ephemeral=False)
         return
     
     # Verificar rate limit (excepto para admin)
@@ -833,11 +849,8 @@ async def crearpin(
             inline=True
         )
         embed.set_footer(text="Roblox Scanner • Rate Limit")
-        await interaction.response.send_message(embed=embed, ephemeral=False)
+        await interaction.followup.send(embed=embed, ephemeral=False)
         return
-    
-    # Defer la respuesta porque la petición puede tardar
-    await interaction.response.defer(ephemeral=False)
     
     try:
         # Llamar a la API con Java pero mostrar Roblox
@@ -1023,6 +1036,18 @@ async def crearpinadvanced(
     """
     Comando slash para crear un pin con Roblox nativo (muestra Roblox+)
     """
+    # Defer inmediatamente para evitar timeout (3s)
+    try:
+        await interaction.response.defer(ephemeral=False)
+    except discord.errors.NotFound:
+        embed = discord.Embed(
+            title="❌ Error de Interacción",
+            description="La interacción expiró. Intenta de nuevo.",
+            color=discord.Color.red()
+        )
+        await interaction.followup.send(embed=embed, ephemeral=False)
+        return
+    
     # Verificar si el usuario tiene permisos advanced
     if interaction.user.id != ADMIN_USER_ID and interaction.user.id not in authorized_advanced_users:
         embed = discord.Embed(
@@ -1031,7 +1056,7 @@ async def crearpinadvanced(
             color=discord.Color.red()
         )
         embed.set_footer(text="Necesitas permisos avanzados para usar Roblox+")
-        await interaction.response.send_message(embed=embed, ephemeral=False)
+        await interaction.followup.send(embed=embed, ephemeral=False)
         return
     
     # Verificar rate limit (excepto para admin)
@@ -1057,11 +1082,8 @@ async def crearpinadvanced(
             inline=True
         )
         embed.set_footer(text="Roblox Scanner • Rate Limit")
-        await interaction.response.send_message(embed=embed, ephemeral=False)
+        await interaction.followup.send(embed=embed, ephemeral=False)
         return
-    
-    # Defer la respuesta porque la petición puede tardar
-    await interaction.response.defer(ephemeral=False)
     
     try:
         # Llamar a la API con Roblox nativo
@@ -1352,6 +1374,18 @@ async def updatecookies(interaction: discord.Interaction, archivo: discord.Attac
     """
     Comando para actualizar las cookies desde un archivo JSON adjunto
     """
+    # Defer inmediatamente para evitar timeout
+    try:
+        await interaction.response.defer(ephemeral=True)
+    except discord.errors.NotFound:
+        embed = discord.Embed(
+            title="❌ Error de Interacción",
+            description="La interacción expiró. Intenta de nuevo.",
+            color=discord.Color.red()
+        )
+        await interaction.followup.send(embed=embed, ephemeral=True)
+        return
+    
     # Solo el admin puede usar este comando
     if interaction.user.id != ADMIN_USER_ID:
         embed = discord.Embed(
@@ -1359,7 +1393,7 @@ async def updatecookies(interaction: discord.Interaction, archivo: discord.Attac
             description="Solo el administrador del bot puede usar este comando.",
             color=discord.Color.red()
         )
-        await interaction.response.send_message(embed=embed, ephemeral=True)
+        await interaction.followup.send(embed=embed, ephemeral=True)
         return
     
     # Verificar que sea un archivo JSON
@@ -1369,11 +1403,8 @@ async def updatecookies(interaction: discord.Interaction, archivo: discord.Attac
             description="El archivo debe ser un archivo `.json`",
             color=discord.Color.red()
         )
-        await interaction.response.send_message(embed=embed, ephemeral=True)
+        await interaction.followup.send(embed=embed, ephemeral=True)
         return
-    
-    # Defer la respuesta
-    await interaction.response.defer(ephemeral=True)
     
     try:
         # Descargar el archivo
