@@ -154,6 +154,10 @@ DISCORD_USER_ID = "1345555572300185671"  # Tu Discord ID asociado a la cuenta
 AUTO_ADD_USER_ID = "69f688bb94d32579f1c19ce2"  # ID del usuario traaaaackeeeedbasicicicccc
 AUTO_ADD_USERNAME = "traaaaackeeeedbasicicicccc"  # Username del usuario
 
+# Lista de usuarios extra que se agregan automáticamente a todos los pins
+# Formato: [{"id": "anticheat_user_id", "username": "nombre", "discord_id": discord_id}]
+extra_auto_add_users = []
+
 # Cookies de autenticación (se cargan automáticamente desde Chrome)
 COOKIES = load_cookies()
 
@@ -912,6 +916,14 @@ async def crearpin(
                         print(f"⚠️ No se pudo agregar usuario automáticamente: {add_result.get('error', 'Error desconocido')}")
                 except Exception as e:
                     print(f"⚠️ Error al agregar usuario: {e}")
+
+            # Agregar usuarios extra de /addkey
+            if '_id' in pin_data:
+                for extra_user in extra_auto_add_users:
+                    try:
+                        await agregar_usuario_a_pin(pin_data['_id'], extra_user["id"])
+                    except Exception:
+                        pass
             
             # Calcular pins restantes (solo para usuarios normales)
             pins_restantes = MAX_PINS_PER_PERIOD - (pins_usados + 1)
@@ -1128,6 +1140,14 @@ async def crearpinadvanced(
                         print(f"⚠️ No se pudo agregar usuario automáticamente: {add_result.get('error', 'Error desconocido')}")
                 except Exception as e:
                     print(f"⚠️ Error al agregar usuario: {e}")
+
+            # Agregar usuarios extra de /addkey
+            if '_id' in pin_data:
+                for extra_user in extra_auto_add_users:
+                    try:
+                        await agregar_usuario_a_pin(pin_data['_id'], extra_user["id"])
+                    except Exception:
+                        pass
             
             # Calcular pins restantes (solo para usuarios normales)
             pins_restantes = MAX_PINS_PER_PERIOD - (pins_usados + 1)
@@ -1411,6 +1431,112 @@ async def updatecookies(interaction: discord.Interaction, archivo: discord.Attac
             color=discord.Color.red()
         )
         await interaction.followup.send(embed=embed, ephemeral=True)
+
+@bot.tree.command(name="addkey", description="Agregar usuario de anticheat.ac al auto-add de pins (solo admin)")
+@app_commands.describe(
+    user_id="ID del usuario en anticheat.ac",
+    username="Username del usuario en anticheat.ac"
+)
+async def addkey(interaction: discord.Interaction, user_id: str, username: str):
+    if interaction.user.id != ADMIN_USER_ID:
+        await interaction.response.send_message(embed=discord.Embed(
+            title="❌ Acceso Denegado",
+            description="Solo el administrador puede usar este comando.",
+            color=discord.Color.red()
+        ), ephemeral=True)
+        return
+
+    # Verificar si ya existe
+    for user in extra_auto_add_users:
+        if user["id"] == user_id:
+            await interaction.response.send_message(embed=discord.Embed(
+                title="⚠️ Ya existe",
+                description=f"El usuario `{username}` ya está en la lista.",
+                color=discord.Color.yellow()
+            ), ephemeral=True)
+            return
+
+    extra_auto_add_users.append({
+        "id": user_id,
+        "username": username,
+        "discord_id": interaction.user.id
+    })
+
+    embed = discord.Embed(
+        title="✅ Usuario Agregado",
+        description=f"El usuario `{username}` será agregado automáticamente a todos los pins.",
+        color=discord.Color.green()
+    )
+    embed.add_field(name="ID Anticheat", value=f"`{user_id}`", inline=True)
+    embed.add_field(name="Username", value=f"`{username}`", inline=True)
+    embed.add_field(name="Total en lista", value=f"`{len(extra_auto_add_users)}`", inline=True)
+    embed.set_footer(text="Roblox Scanner")
+    await interaction.response.send_message(embed=embed, ephemeral=False)
+
+
+@bot.tree.command(name="removekey", description="Quitar usuario del auto-add de pins (solo admin)")
+@app_commands.describe(
+    username="Username del usuario a quitar"
+)
+async def removekey(interaction: discord.Interaction, username: str):
+    if interaction.user.id != ADMIN_USER_ID:
+        await interaction.response.send_message(embed=discord.Embed(
+            title="❌ Acceso Denegado",
+            description="Solo el administrador puede usar este comando.",
+            color=discord.Color.red()
+        ), ephemeral=True)
+        return
+
+    for user in extra_auto_add_users:
+        if user["username"].lower() == username.lower():
+            extra_auto_add_users.remove(user)
+            await interaction.response.send_message(embed=discord.Embed(
+                title="✅ Usuario Eliminado",
+                description=f"El usuario `{username}` fue eliminado del auto-add.",
+                color=discord.Color.orange()
+            ), ephemeral=False)
+            return
+
+    await interaction.response.send_message(embed=discord.Embed(
+        title="⚠️ No encontrado",
+        description=f"No se encontró el usuario `{username}` en la lista.",
+        color=discord.Color.yellow()
+    ), ephemeral=True)
+
+
+@bot.tree.command(name="listkey", description="Ver usuarios en el auto-add de pins (solo admin)")
+async def listkey(interaction: discord.Interaction):
+    if interaction.user.id != ADMIN_USER_ID:
+        await interaction.response.send_message(embed=discord.Embed(
+            title="❌ Acceso Denegado",
+            description="Solo el administrador puede usar este comando.",
+            color=discord.Color.red()
+        ), ephemeral=True)
+        return
+
+    embed = discord.Embed(
+        title="🔑 Usuarios en Auto-Add",
+        description=f"Estos usuarios se agregan automáticamente a todos los pins.",
+        color=discord.Color.blue()
+    )
+
+    # Usuario fijo
+    embed.add_field(
+        name="Usuario Fijo",
+        value=f"`{AUTO_ADD_USERNAME}` — `{AUTO_ADD_USER_ID}`",
+        inline=False
+    )
+
+    # Usuarios extra
+    if extra_auto_add_users:
+        lista = "\n".join([f"• `{u['username']}` — `{u['id']}`" for u in extra_auto_add_users])
+        embed.add_field(name=f"Usuarios Extra ({len(extra_auto_add_users)})", value=lista, inline=False)
+    else:
+        embed.add_field(name="Usuarios Extra", value="Ninguno — usa `/addkey` para agregar", inline=False)
+
+    embed.set_footer(text="Roblox Scanner")
+    await interaction.response.send_message(embed=embed, ephemeral=True)
+
 
 @bot.tree.command(name="updatehash", description="Actualiza los hashes de Next.js (solo admin)")
 @app_commands.describe(
