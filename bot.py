@@ -251,7 +251,7 @@ async def agregar_usuario_a_pin(pin_id, user_id):
                 timeout=aiohttp.ClientTimeout(total=30)
             ) as resp:
                 status = resp.status
-                response_text = await _read_response_text(resp)
+                response_text = await resp.text()  # aiohttp descomprime automáticamente
 
         if status == 200:
             return {"success": True, "status": status, "response": response_text}
@@ -423,7 +423,7 @@ async def crear_pin_api(game_type="Java", pin_name=None, ram_dump=False, private
                 timeout=aiohttp.ClientTimeout(total=30)
             ) as resp:
                 status = resp.status
-                text_data = await _read_response_text(resp)
+                text_data = await resp.text()  # aiohttp descomprime automáticamente
 
         if status == 200:
             try:
