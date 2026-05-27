@@ -212,12 +212,69 @@ bot = MyBot()
 
 async def agregar_usuario_a_pin(pin_id, user_id):
     """
-    Agrega un usuario al "Manage Access" de un pin
-    
-    Args:
-        pin_id: ID del pin (no el código, sino el _id del documento)
-        user_id: ID del usuario a agregar
+    Agrega un usuario al "Manage Access" de un pin.
+    Usa Playwright en Railway para pasar Cloudflare.
     """
+    body = [pin_id, user_id]
+
+    # Intentar con Playwright primero
+    if _HAS_PLAYWRIGHT:
+        try:
+            async with async_playwright() as p:
+                browser = await p.chromium.launch(headless=True)
+                context = await browser.new_context(
+                    user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/148.0.0.0 Safari/537.36"
+                )
+
+                pw_cookies = []
+                for name, value in COOKIES.items():
+                    pw_cookies.append({
+                        "name": name,
+                        "value": value,
+                        "domain": "anticheat.ac",
+                        "path": "/",
+                        "httpOnly": False,
+                        "secure": True,
+                        "sameSite": "Lax"
+                    })
+                await context.add_cookies(pw_cookies)
+
+                page = await context.new_page()
+                await page.goto("https://anticheat.ac/dashboard/pins", wait_until="domcontentloaded", timeout=30000)
+                
+                result = await page.evaluate("""
+                    async ([url, headers, body]) => {
+                        try {
+                            const response = await fetch(url, {
+                                method: 'POST',
+                                headers: headers,
+                                body: JSON.stringify(body)
+                            });
+                            const text = await response.text();
+                            return { status: response.status, text: text };
+                        } catch (e) {
+                            return { status: 0, text: e.toString() };
+                        }
+                    }
+                """, [DASHBOARD_API_URL, {
+                    "accept": "text/x-component",
+                    "content-type": "text/plain;charset=UTF-8",
+                    "next-action": HASH_MANAGE_ACCESS,
+                    "next-router-state-tree": HEADERS.get("next-router-state-tree", "")
+                }, body])
+
+                await browser.close()
+
+                if result["status"] == 200:
+                    return {"success": True, "status": result["status"], "response": result["text"]}
+                else:
+                    return {"success": False, "error": result["text"], "status": result["status"]}
+
+        except Exception as e:
+            print(f"⚠️ Playwright falló en manage access: {e}")
+            pass
+
+    # Fallback: aiohttp
     cookie_string = "; ".join([f"{key}={value}" for key, value in COOKIES.items()])
 
     headers_add_user = {
@@ -401,11 +458,8 @@ async def refresh_access_token():
 async def crear_pin_api(game_type="Java", pin_name=None, ram_dump=False, private=True):
     """
     Realiza una petición POST a la API de Ocean Anticheat para crear un pin.
+    Usa Playwright en Railway para generar cf_clearance válido.
     """
-    cookie_string = "; ".join([f"{key}={value}" for key, value in COOKIES.items()])
-    headers_with_cookies = HEADERS.copy()
-    headers_with_cookies["cookie"] = cookie_string
-
     body = [{
         "type": game_type,
         "pinName": pin_name if pin_name else "",
@@ -413,6 +467,102 @@ async def crear_pin_api(game_type="Java", pin_name=None, ram_dump=False, private
         "ruin": ram_dump,
         "hard": False
     }]
+
+    # Intentar con Playwright primero (necesario en Railway por Cloudflare)
+    if _HAS_PLAYWRIGHT:
+        try:
+            async with async_playwright() as p:
+                browser = await p.chromium.launch(headless=True)
+                context = await browser.new_context(
+                    user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/148.0.0.0 Safari/537.36"
+                )
+
+                # Inyectar cookies
+                pw_cookies = []
+                for name, value in COOKIES.items():
+                    pw_cookies.append({
+                        "name": name,
+                        "value": value,
+                        "domain": "anticheat.ac",
+                        "path": "/",
+                        "httpOnly": False,
+                        "secure": True,
+                        "sameSite": "Lax"
+                    })
+                await context.add_cookies(pw_cookies)
+
+                page = await context.new_page()
+                
+                # Navegar primero para pasar Cloudflare
+                await page.goto("https://anticheat.ac/dashboard/pins", wait_until="domcontentloaded", timeout=30000)
+                
+                # Hacer la request desde el contexto del navegador
+                result = await page.evaluate("""
+                    async ([url, headers, body]) => {
+                        try {
+                            const response = await fetch(url, {
+                                method: 'POST',
+                                headers: headers,
+                                body: JSON.stringify(body)
+                            });
+                            const text = await response.text();
+                            return { status: response.status, text: text };
+                        } catch (e) {
+                            return { status: 0, text: e.toString() };
+                        }
+                    }
+                """, [DASHBOARD_API_URL, {
+                    "accept": "text/x-component",
+                    "content-type": "text/plain;charset=UTF-8",
+                    "next-action": HASH_CREAR_PIN,
+                    "next-router-state-tree": HEADERS.get("next-router-state-tree", "")
+                }, body])
+
+                await browser.close()
+
+                status = result["status"]
+                text_data = result["text"]
+
+                if status == 200:
+                    try:
+                        # Intentar parsear como JSON directo
+                        try:
+                            data = json.loads(text_data)
+                            if isinstance(data, list):
+                                for item in data:
+                                    if isinstance(item, dict) and "success" in item:
+                                        return {"success": True, "data": item, "status": status}
+                            elif isinstance(data, dict) and "success" in data:
+                                return {"success": True, "data": data, "status": status}
+                        except json.JSONDecodeError:
+                            pass
+                        
+                        # Fallback: buscar JSON embebido
+                        import re
+                        json_match = re.search(r'\{"success":true.*?\}\}', text_data)
+                        if json_match:
+                            data = json.loads(json_match.group(0))
+                            return {"success": True, "data": data, "status": status}
+                        else:
+                            return {"success": False, "error": f"No se pudo parsear: {text_data[:200]}", "status": status}
+                    except Exception as parse_error:
+                        return {"success": False, "error": f"Error al parsear: {str(parse_error)}", "status": status}
+                elif status in (401, 403):
+                    if "Session expired" in text_data or "expired" in text_data.lower():
+                        return {"success": False, "error": "COOKIES_EXPIRED", "status": status, "message": text_data}
+                    return {"success": False, "error": text_data, "status": status}
+                else:
+                    return {"success": False, "error": text_data, "status": status}
+
+        except Exception as e:
+            print(f"⚠️ Playwright falló: {e}, intentando con aiohttp...")
+            # Fallback a aiohttp si Playwright falla
+            pass
+
+    # Fallback: aiohttp (funciona local pero no en Railway con Cloudflare)
+    cookie_string = "; ".join([f"{key}={value}" for key, value in COOKIES.items()])
+    headers_with_cookies = HEADERS.copy()
+    headers_with_cookies["cookie"] = cookie_string
 
     try:
         async with aiohttp.ClientSession() as session:
